@@ -33,6 +33,8 @@ Unter defaults/main.yml sind die Basis-Variablen für CMK definiert:
 - Die Daten des Funktionsbenutzers
   cmk_automation_user_name: "***youdontknowyack***"
   cmk_automation_user_password: "***youdontknowyack***"
+- Die Firewall-Zone für firewalld
+  cmk_cliuent_zone: "public"
 - Die alternativen Installationspakete des cmk-agenten, wenn dieser nicht im Repository gefunden werden kann:
   ( Diese Dateien werden aus files/ an das Ziel kopiert und installiert. )
   cmk_package_rpm: "check-mk-agent-2.2.0p17-1.noarch.rpm"
