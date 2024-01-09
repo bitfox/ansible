@@ -1,0 +1,13 @@
+---
+# defaults file for cmk_agent
+
+cmk_server_ip: "10.0.0.10"
+cmk_server_name: "checkmk.mynetwork.local"
+cmk_site: "monitoring"
+cmk_api: "https://{{cmk_server_name}}/{{cmk_site}}/check_mk/api/v0"
+cmk_folder: "/"
+cmk_client_zone: "public"
+cmk_automation_user_name: "***youdontknowjack***"
+cmk_automation_user_password: "***youdontknowjack***"
+cmk_package_rpm: "check-mk-agent-2.2.0p17-1.noarch.rpm"
+cmk_package_deb: "check-mk-agent_2.2.0p17-49385346971f6457_all.deb"
