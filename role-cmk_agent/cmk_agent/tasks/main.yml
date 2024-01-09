@@ -31,7 +31,7 @@
 - name: check-mk-client.xml kopieren, wenn firewalld vorhanden
   become: yes
   ansible.builtin.copy:
-    src: firewalld-check-mk-agent.xml
+    src: firewalld-check-mk-client.xml
     dest: /usr/lib/firewalld/services/check-mk-client.xml
     owner: root
     group: root
