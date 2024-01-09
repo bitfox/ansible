@@ -1,0 +1,201 @@
+---
+#
+# Hinweis: Beachte die Default-werte unter defaults/main.yml
+#
+
+#
+# 1) Vorarbeiten: Bestimme installierte Pakete und laufende Systemservices
+#
+
+- name: Hole Infos über die installierten Pakete
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Hole Infos über die vorhandenen Systemservices (refresh)
+  ansible.builtin.service_facts:
+
+#
+# 2) Firewall freischalten
+#
+# für ansible.posix.firewalld nicht vergessen: ansible-galaxy collection install ansible.posix
+#
+
+- name: Konfigurieren von /etc/services
+  become: yes
+  ansible.builtin.lineinfile:
+    path: /etc/services
+    regexp: '^check-mk-client'
+    line: check-mk-client 6556
+
+# 2a) firewalld
+- name: check-mk-client.xml kopieren, wenn firewalld vorhanden
+  become: yes
+  ansible.builtin.copy:
+    src: firewalld-check-mk-agent.xml
+    dest: /usr/lib/firewalld/services/check-mk-client.xml
+    owner: root
+    group: root
+    mode: 0644
+  when: ('firewalld' in ansible_facts.packages )
+
+- name: Aktivieren der Regel, wenn firewalld vorhanden
+  become: yes
+  ansible.posix.firewalld:
+    zone: "{{cmk_client_zone}}"
+    service: check-mk-client
+    permanent: true
+    state: enabled
+  notify: reload firewalld
+  when: ('firewalld' in ansible_facts.packages )
+
+# 2b) iptables
+- name: Öffnen der Firewall für den Agenten, wenn iptables-Service aktiv
+  become: yes
+  ansible.builtin.iptables:
+    chain: INPUT
+    source: "{{cmk_server_ip}}"
+    destination_port: 6556
+    protocol: tcp
+    jump: ACCEPT
+  when: ('iptables' in ansible_facts.packages ) and (ansible_facts.services['iptables.service'].state=='running')
+
+#
+# 3) Den CMK-Agenten installieren
+#
+
+# 3a) Installation des CMK-Agenten aus einem Repo
+- name: Installiere den letzten CMK-Agenten, sofern im Repository vorhanden
+  become: yes
+  ansible.builtin.package:
+    name: check-mk-agent
+    state: latest
+  ignore_errors: yes
+
+# 3b) Fallback für RedHat: Lokale installation
+- name: Wenn noch immer kein CMK vorhanden, kopiere von lokal, wenn CentOS oder RHEL
+  become: yes
+  ansible.builtin.copy:
+    src: "{{cmk_package_rpm}}"
+    dest: "/tmp/{{cmk_package_rpm}}"
+  when: ( 'check-mk-agent' not in ansible_facts.packages ) and ( ( ansible_facts['distribution'] == "CentOS" ) or (  ansible_facts['distribution'] == "RedHat" ) )
+
+- name: Wenn noch immer kein CMK vorhanden,installiere RPM von lokal, wenn CentOS oder RHEL
+  become: yes
+  ansible.builtin.yum:
+    name: "/tmp/{{cmk_package_rpm}}"
+    state: present
+    disable_gpg_check: true
+  when: ( 'check-mk-agent' not in ansible_facts.packages ) and ( ( ansible_facts['distribution'] == "CentOS" ) or (  ansible_facts['distribution'] == "RedHat" ) )
+
+- name: Abräumen von {{cmk_package_rpm}}, sofern benötigt.
+  become: yes
+  ansible.builtin.file:
+    src: "/tmp/{{cmk_package_rpm}}"
+    state: absent
+  when: ( 'check-mk-agent' not in ansible_facts.packages ) and ( ( ansible_facts['distribution'] == "CentOS" ) or (  ansible_facts['distribution'] == "RedHat" ) )
+
+# 3c) Fallback für Debian: Lokale Installation
+- name: Wenn noch immer kein CMK vorhanden, kopiere von lokal, wenn Debian
+  become: yes
+  ansible.builtin.copy:
+    src: "{{cmk_package_deb}}"
+    dest: "/tmp/{{cmk_package_deb}}"
+  when: ( 'check-mk-agent' not in ansible_facts.packages ) and ( ansible_facts['distribution'] == "Debian" )
+
+- name: Wenn noch immer kein CMK vorhanden,installiere deb von lokal, wenn Debian
+  become: yes
+  ansible.builtin.apt:
+    deb: "/tmp/{{cmk_package_deb}}"
+  when: ( 'check-mk-agent' not in ansible_facts.packages ) and ( ansible_facts['distribution'] == "Debian" )
+
+- name: Abräumen von {{cmk_package_deb}}, sofern benötigt.
+  become: yes
+  ansible.builtin.file:
+    src: "/tmp/{{cmk_package_deb}}"
+    state: absent
+  when: ( 'check-mk-agent' not in ansible_facts.packages ) and ( ansible_facts['distribution'] == "Debian" )
+
+# Stop, wenn kein check-mk-agent-Paket vorhanden.
+- name: Testen, ob check-mk-agent-Paket installiert ist
+  ansible.builtin.assert:
+    that: "'check-mk-agent' in ansible_facts.packages"
+    fail_msg: "Es ist kein check-mk-agent-Paket installiert."
+    success_msg: "Es ist ein check-mk-agent-Paket installiert."
+
+- name: Stop, wenn hier immer noch kein Paket vorhanden ist.
+  ansible.builtin.meta: end_host
+  when: "'check-mk-agent' not in ansible_facts.packages"
+
+#
+# 4) Den Agenten beim CMK-Server registrieren.
+#
+
+# 4a) Agenten beim CMK-Server anmelden
+- name: Aktuellen Host bei CMK anmelden
+  ansible.builtin.shell: |
+    curl \
+      -s -k \
+      --request POST \
+      --header "Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}" \
+      --header "Accept: application/json" \
+      --header "Content-Type: application/json" \
+      --data "{
+          \"attributes\": {
+                  \"ipaddress\": \"{{hostvars[inventory_hostname]['ansible_default_ipv4']['address']}}\"
+          },
+          \"folder\": \"{{cmk_folder}}\",
+          \"host_name\": \"{{inventory_hostname_short}}\"
+        }" \
+      "{{cmk_api}}/domain-types/host_config/collections/all"
+
+# 4b1) Abräumen alter Services des Hosts
+- name: Aktuellen Host bei CMK abräumen (falls schon einmal vorhanden gewesen)
+  ansible.builtin.shell: |
+    curl \
+      -s -k \
+      --request POST \
+      --header "Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}" \
+      --header "Accept: application/json" \
+      --header "Content-Type: application/json" \
+      --data "{
+          \"host_name\": \"{{inventory_hostname_short}}\",
+          \"mode\": \"tabula_rasa\"
+        }" \
+      "{{cmk_api}}/domain-types/service_discovery_run/actions/start/invoke"
+
+# 4b2) Scannen neuer Services des Hosts
+- name: Aktuellen Host bei CMK scannen
+  ansible.builtin.shell: |
+    curl \
+      -s -k \
+      --request POST \
+      --header "Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}" \
+      --header "Accept: application/json" \
+      --header "Content-Type: application/json" \
+      --data "{
+          \"host_name\": \"{{inventory_hostname_short}}\",
+          \"mode\": \"fix_all\"
+        }" \
+      "{{cmk_api}}/domain-types/service_discovery_run/actions/start/invoke"
+
+# 4b3) Übernahme der Ergebnisse
+- name: Aktuelle Änderungen in CMK übernehmen
+  ansible.builtin.shell: |
+    curl \
+      -L -s -k \
+      --header "Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}" \
+      --header "Accept: application/json" \
+      --header "Content-Type: application/json" \
+      --header "If-Match: *" \
+      --data "{
+          \"force_foreign_changes\": false,
+          \"redirect\": false,
+          \"sites\": [ \"{{cmk_site}}\" ]
+        }" \
+      "{{cmk_api}}/domain-types/activation_run/actions/activate-changes/invoke"
+
+# 5) Registrieren des Agenten bzw. aktivieren von TLS
+- name: TLS-Verschlüsselung auf dem Client einschalten.
+  become: yes
+  ansible.builtin.shell: |
+    cmk-agent-ctl register --server {{cmk_server_name}} --site {{cmk_site}} --hostname {{inventory_hostname_short}} --trust-cert --user {{cmk_automation_user_name}} --password {{cmk_automation_user_password}}
