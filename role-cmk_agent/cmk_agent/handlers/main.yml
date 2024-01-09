@@ -1,0 +1,8 @@
+---
+
+# Reload des Firewalld, wenn im Status "running".
+- name: reload firewalld
+  become: true
+  ansible.builtin.command:
+    cmd: firewall-cmd --reload
+  when: (ansible_facts.services['firewalld.service'].state=='running')
