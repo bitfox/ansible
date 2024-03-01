@@ -1,8 +1,18 @@
 ---
+# handlers file for role-cmk_agent_register
 
-# Reload des Firewalld, wenn im Status "running".
-- name: reload firewalld
+# restart der firewalld, wenn dieser running ist
+- name: "reload firewalld"
   become: true
-  ansible.builtin.command:
-    cmd: firewall-cmd --reload
-  when: (ansible_facts.services['firewalld.service'].state=='running')
+  ansible.builtin.service:
+    name: firewalld
+    state: restarted
+  when: ('firewalld' in ansible_facts.packages ) and (ansible_facts.services['firewalld.service'].state=='running')
+
+# restart der iptablesd, wenn dieser running ist
+- name: "reload iptables"
+  become: true
+  ansible.builtin.service:
+    name: iptables
+    state: restarted
+  when: ('iptables' in ansible_facts.packages ) and (ansible_facts.services['iptables.service'].state=='running')
