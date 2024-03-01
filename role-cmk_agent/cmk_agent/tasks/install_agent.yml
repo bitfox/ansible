@@ -1,0 +1,115 @@
+#
+# Suchen nach Paketen in der Rolle und schauen, welche Version das ist.
+#
+- set_fact:
+    rpm_files: "{{ lookup('ansible.builtin.fileglob','check-mk-agent-*.rpm',wantlist=True) | sort(reverse=True) }}"
+    deb_files: "{{ lookup('ansible.builtin.fileglob','check-mk-agent-*.deb',wantlist=True) | sort(reverse=True) }}"
+
+- set_fact:
+    rpm_version: "{%if rpm_files|length>0 %}{{rpm_files[0]|regex_search('check-mk-agent-([0-9]+\\.[0-9]+\\.[0-9]+[a-z]+[0-9]+).*.rpm','\\1')|first}}{%endif%}"
+    deb_version: "{%if deb_files|length>0 %}{{deb_files[0]|regex_search('check-mk-agent_([0-9]+\\.[0-9]+\\.[0-9]+[a-z]+[0-9]+).*.deb','\\1')|first}}{%endif%}"
+
+
+#
+# Install/Update des CMK-Agenten über die angebundenen Repositories
+# Zusätzlich holen wir uns die Versionsnummer.
+#
+- name: "Install/Update des CMK-Agenten über die angebundenen Repositories."
+  become: yes
+  ansible.builtin.package:
+    name: check-mk-agent
+    state: latest
+  ignore_errors: yes
+
+- ansible.builtin.package_facts:
+  become: yes
+  register: package_info
+
+- ansible.builtin.set_fact:
+    installed_version: "{% if ansible_facts.packages['check-mk-agent'] is defined %}{{ ansible_facts.packages['check-mk-agent'] | map(attribute='version') | first}}{% endif %}"
+
+- debug:
+    msg: "Aktuell installierte Agentenversion: {% if installed_version | length > 0 %}{{installed_version}}{% else %}keine{% endif %}"
+
+
+#
+# Installation von RPM-Paket aus der Rolle, 
+# (wenn wir ein RPM haben UND wir ein Centos/Rhel 7.0..9 sind )  UND
+# ( noch kein paket installiert ist ODER das mitgebrachte Paket neuer ist )
+#
+- name: "Installiere das RPM-Paket der Rolle."
+  become: true
+  block:
+    - debug:
+        msg: 
+          - "Auf dem Host {{inventory_hostname}} befindet sich {%if installed_version != '' %} die Agentenversion {{installed_version}} {% else %}keine Agentenversion{% endif %}."
+          - "Wir haben das RPM-Paket {{rpm_version}} mit an Board."
+    - block:
+        - debug:
+            msg: "Deinstalliere das veraltete Paket {{installed_version}}"
+        - ansible.builtin.package:
+            name: check-mk-agent
+            state: absent
+      when: installed_version|length>0
+    - block:
+        - debug: 
+            msg: "Installiere das neue RPM-Paket {{rpm_version}}"
+        - ansible.builtin.copy:
+            src: "{{rpm_files[0]}}"
+            dest: "/tmp/cmk_install.rpm"
+        - ansible.builtin.yum:
+            name: "/tmp/cmk_install.rpm"
+            state: present
+            disable_gpg_check: true
+  when: ( rpm_version|length>0 and ansible_distribution in [ 'CentOS', 'Rhel' ] and ansible_distribution_version in [ '7.9','8','9' ] ) and ( installed_version|length==0  or installed_version is version(rpm_version,'<') )
+
+
+
+#
+# Installation von apt-Paket aus der Rolle, 
+# (wenn wir ein deb haben UND wir ein debian  sind )  UND
+# ( noch kein paket installiert ist ODER das mitgebrachte Paket neuer ist )
+#
+- name: "Installiere das DEB-Paket der Rolle."
+  become: true
+  block:
+    - debug:
+        msg: 
+          - "Auf dem Host {{inventory_hostname}} befindet sich {%if installed_version != '' %} die Agentenversion {{installed_version}} {% else %}keine Agentenversion{% endif %}."
+          - "Wir haben das DEB-Paket {{deb_version}} mit an Board."
+    - block:
+        - debug:
+            msg: "Deinstalliere das veraltete Paket {{installed_version}}"
+        - ansible.builtin.package:
+            name: check-mk-agent
+            state: absent
+      when: installed_version|length>0
+    - block:
+        - debug: 
+            msg: "Installiere das neue deb-Paket {{deb_version}}"
+        - ansible.builtin.copy:
+            src: "{{deb_files[0]}}"
+            dest: "/tmp/cmk_install.deb"
+        - ansible.builtin.apt:
+            name: "/tmp/cmk_install.deb"
+            state: present
+            disable_gpg_check: true
+  when: ( rpm_version|length>0 and ansible_distribution in [ 'Debian' ] and ansible_distribution_version in [ '8', '9' ] ) and ( installed_version|length==0  or installed_version is version(deb_version,'<') )
+
+
+
+
+
+
+#
+# Prüfen, ob wir nun einen Agenten installiert haben.
+#
+
+- ansible.builtin.set_fact:
+    installed_version: "{% if ansible_facts.packages['check-mk-agent'] is defined %}{{ ansible_facts.packages['check-mk-agent'] | map(attribute='version') }}{% endif %}"
+
+- ansible.builtin.assert:
+    that: ( installed_version != '' )
+    success_msg: "Es ist die Agentenversion {{installed_version}} installiert."
+    fail_msg: "Es ist keine Agentenversion installiert: Abbruch."
+  failed_when: not ( installed_version | length > 0 )
