@@ -9,7 +9,7 @@
   ansible.builtin.shell: |
     cmk-agent-ctl status | while read zeile; do
       [[ ${zeile} =~ UUID:[\ \t]+(.*) ]] && uuid=${BASH_REMATCH[1]} || \
-      [[ ${uuid} != "" &&  ${zeile} =~ Site\ \'monitoring\'\ agent ]] && cmk-agent-ctl delete ${uuid} && uuid=""
+      [[ ${uuid} != "" &&  ${zeile} =~ Site\ \'{{cmk_site}}\'\ agent ]] && cmk-agent-ctl delete ${uuid} && uuid=""
     done
     rm -f /tmp/cmk-zertifikat.json
 
