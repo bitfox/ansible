@@ -31,6 +31,7 @@
         permanent: true
         state: enabled
       notify: reload firewalld
+when: ('firewalld' in ansible_facts.packages )
   
 #
 # setup iptables
@@ -44,6 +45,6 @@
         destination_port: 6556
         protocol: tcp
         jump: ACCEPT
-  when: ('iptables' in ansible_facts.packages ) and (ansible_facts.services['iptables.service'].state=='running')
-  notify: reload iptables
-
+      notify: reload iptables
+when: ('iptables' in ansible_facts.packages )
+  
