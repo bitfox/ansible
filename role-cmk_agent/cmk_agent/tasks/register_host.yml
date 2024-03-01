@@ -1,0 +1,130 @@
+#
+# Das Registrieren der Hosts am CMK-Server geschieht dort via api von localhost aus.
+# Hintergrund: Host und CMK-Server stehen ggf. in verschiedenen zonen.
+#
+
+- name: "Teste ob die API erreichbar ist."
+  ansible.builtin.uri:
+    url: "{{cmk_api}}/objects/user_config/{{cmk_automation_user_name}}"
+    method: GET
+    validate_certs: false
+    follow_redirects: false
+    headers:
+      Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}
+      Accept: application/json
+    status_code: [ 200, 404 ]
+  register: data
+  run_once: true
+  delegate_to: "{{cmk_apirequest_host}}"
+
+- name: "Eregebnis der Prüfung:"
+  ansible.builtin.assert:
+    that:         data.status is defined and data.status == 200 
+    success_msg: "Habe die API mit dem Benutzer '{{cmk_automation_user_name}}' erreicht."
+    fail_msg:    "Habe die API mit dem Benutzer '{{cmk_automation_user_name}}' nicht erreicht. {{data}}"
+  run_once: true
+
+- ansible.builtin.meta: end_play
+  run_once: true
+  when: data.status is undefined or data.status != 200 
+
+#
+# Wir suchen nach dem Host nun auf dem CMK-Server:
+# ist dieser Host bekannt?
+#
+
+- name: "Prüfe ob der jeweilige Host beim CMK-Server bekannt ist."
+  ansible.builtin.uri:
+    url: "{{cmk_api}}/objects/host_config/{{cmk_hostname}}"
+    method: GET
+    validate_certs: false
+    follow_redirects: none
+    headers:
+      Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}
+      Accept: application/json
+    status_code: [ 200, 404 ]
+  register: data
+  delegate_to: "{{cmk_apirequest_host}}"
+
+- name: "Anlegen von Hosts, die nicht beim CMK-Server bekannt sind."
+  block:
+    ### Anlegen des Hosts
+    - name: "Anlegen des Hosts."
+      ansible.builtin.uri:
+        url: "{{cmk_api}}/domain-types/host_config/collections/all"
+        method: POST
+        validate_certs: false
+        follow_redirects: none
+        body_format: json
+        headers:
+          Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}
+          Accept: application/json
+          Content-Type: application/json
+        body: 
+          {
+            "attributes": {
+                  "ipaddress": "{{hostvars[inventory_hostname]['ansible_default_ipv4']['address']}}"
+            },
+           "folder": "{{cmk_folder}}",
+           "host_name": "{{cmk_hostname}}",
+          }
+        status_code: [ 200 ]
+    ### Tabula Rasa Services
+    - name: "Tabula rasa der Services"
+      ansible.builtin.uri:
+        url: "{{cmk_api}}/domain-types/service_discovery_run/actions/start/invoke"
+        method: POST
+        validate_certs: false
+        follow_redirects: none
+        body_format: json
+        headers:
+          Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}
+          Accept: application/json
+          Content-Type: application/json
+        body:
+          {
+            "host_name": "{{cmk_hostname}}",
+            "mode": "tabula_rasa"
+          }
+        status_code: [ 200, 302 ]
+    ### Scannen von Services
+    - name: "Rescan der Services"
+      ansible.builtin.uri:
+        url: "{{cmk_api}}/domain-types/service_discovery_run/actions/start/invoke"
+        method: POST
+        validate_certs: false
+        follow_redirects: none
+        body_format: json
+        headers:
+          Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}
+          Accept: application/json
+          Content-Type: application/json
+        body:
+          {
+            "host_name": "{{cmk_hostname}}",
+            "mode": "fix_all"
+          }
+        status_code: [ 200, 409 ]
+    ### Acknowledge
+    - name: "ACK"
+      ansible.builtin.uri:
+        url: "{{cmk_api}}/domain-types/activation_run/actions/activate-changes/invoke"
+        method: POST
+        validate_certs: false
+        follow_redirects: none
+        body_format: json
+        headers:
+          Authorization: Bearer {{cmk_automation_user_name}} {{cmk_automation_user_password}}
+          Accept: application/json
+          Content-Type: application/json
+          If-Match: "*"
+        body:
+          {
+            "force_foreign_changes": "false",
+            "redirect": "false",
+            "sites": [ "{{cmk_site}}" ]
+          }
+        status_code: [ 200 ]
+  when: data.status is defined and data.status == 404
+  delegate_to: "{{cmk_apirequest_host}}"
+
