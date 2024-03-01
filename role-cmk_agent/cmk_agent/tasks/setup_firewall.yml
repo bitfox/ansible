@@ -1,0 +1,49 @@
+#
+# für ansible.posix.firewalld nicht vergessen: ansible-galaxy collection install ansible.posix
+#
+
+#
+# service in /etc/services eintragen
+#
+- name: Konfigurieren von /etc/services
+  become: yes
+  ansible.builtin.lineinfile:
+    path: /etc/services
+    regexp: '^check-mk-client'
+    line: check-mk-client 6556
+
+#
+# setup firewall_d
+#
+- name: "Setup von Firewalld"
+  become: yes
+  block:
+    - ansible.builtin.copy:
+        src: firewalld-check-mk-agent.xml
+        dest: /usr/lib/firewalld/services/check-mk-client.xml
+        owner: root
+        group: root
+        mode: 0644
+
+    - ansible.posix.firewalld:
+        zone: "{{cmk_client_zone}}"
+        service: check-mk-client
+        permanent: true
+        state: enabled
+      notify: reload firewalld
+  
+#
+# setup iptables
+#
+- name: "setup von iptables"
+  become: yes
+  block:
+    - ansible.builtin.iptables:
+        chain: INPUT
+        source: "{{cmk_server_ip}}"
+        destination_port: 6556
+        protocol: tcp
+        jump: ACCEPT
+  when: ('iptables' in ansible_facts.packages ) and (ansible_facts.services['iptables.service'].state=='running')
+  notify: reload iptables
+
