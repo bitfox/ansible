@@ -31,7 +31,7 @@
         permanent: true
         state: enabled
       notify: reload firewalld
-when: ('firewalld' in ansible_facts.packages )
+  when: ('firewalld' in ansible_facts.packages )
   
 #
 # setup iptables
@@ -46,5 +46,5 @@ when: ('firewalld' in ansible_facts.packages )
         protocol: tcp
         jump: ACCEPT
       notify: reload iptables
-when: ('iptables' in ansible_facts.packages )
+  when: ('iptables' in ansible_facts.packages )
   
