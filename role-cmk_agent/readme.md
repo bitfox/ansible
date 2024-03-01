@@ -2,7 +2,7 @@ Role Name
 =========
 
 Die Rolle cmk_agent kann dem CMK-Agenten auf einer Linux-Maschine ausrollen und am CMK-Server
-- in einem Hostfolder anlegen,
+- in einem Hostfolder anlegen
 - ein vollständiges Discovery durchführen
 - die Service-Items übernehmen
 - die TLS-Verschlüsselung aktivieren
