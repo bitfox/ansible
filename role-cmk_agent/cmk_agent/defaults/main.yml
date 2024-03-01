@@ -1,13 +1,42 @@
 ---
-# defaults file for cmk_agent
+# defaults file for role-cmk_agent_register
 
-cmk_server_ip: "10.0.0.10"
-cmk_server_name: "checkmk.mynetwork.local"
-cmk_site: "monitoring"
-cmk_api: "https://{{cmk_server_name}}/{{cmk_site}}/check_mk/api/v0"
-cmk_folder: "/"
+# Ist die Rolle für den jeweiligen Host aktiviert?
+role_cmk_agent_register_enabled: true
+
+# für diese IP wird auf den Hosts eine Firewallregel (eingehend) für Port 6556 erstellt.
+cmk_server_ip: "192.168.1.234"
+cmk_server_fqdn: "checkmk.network.local"
+
+
+# in dieser Zone wird die Firewallregel angelegt, sofern firewalld verwendung findet.
 cmk_client_zone: "public"
-cmk_automation_user_name: "***youdontknowjack***"
-cmk_automation_user_password: "***youdontknowjack***"
-cmk_package_rpm: "check-mk-agent-2.2.0p17-1.noarch.rpm"
-cmk_package_deb: "check-mk-agent_2.2.0p17-49385346971f6457_all.deb"
+
+# von diesem server aus wird die cmk-api aufgerufen
+# um einen host am cmk-server zu registrieren
+cmk_apirequest_host: "{{cmk_server_fqdn}}"
+
+# das ist der Endpunkt für den API-Aufruf; ssl prefered
+cmk_site: "monitoring"
+#cmk_api: "http://{{cmk_server_fqdn}}/{{cmk_site}}/check_mk/api/v1.0"
+cmk_api: "https://{{cmk_server_fqdn}}/{{cmk_site}}/check_mk/api/v1.0"
+
+# das ist der Benutzer, welcher für den API-Aufruf berechtigt sein muss.
+cmk_automation_user_name: "automation"
+cmk_automation_user_password: "**chanmgeme**"
+
+
+# in diesem hostfolder werden neue hosts registriert, 
+# wenn diese noch nicht bekannt sind.
+cmk_folder: "/"
+
+# das ist die Schreibweise, welche für den Hostnamen bei der Registrierung im CheckMK benutzt wird."
+# diese kann short, aber auch ein fqdn sein.
+#cmk_hostname: "{{inventory_hostname}}"
+cmk_hostname: "{{inventory_hostname_short}}"
+
+
+# Diese Hosts werden von der Rolle nicht angefasst.
+excluded_hosts:
+  - "{{ cmk_server_fqdn }}"
+  - "exception.example.com"
