@@ -1,0 +1,38 @@
+
+
+#
+# Vorsicht: Es können mehrere Verbindungen zu mehreren Sites hinterlegt sein
+# Es ist also besser, nur Zertifikate der Site zu löschen.
+#
+- name: "Entferne alte Zertifikate der Site '{{cmk_site}}' auf den Hosts."
+  become: true
+  ansible.builtin.shell: |
+    cmk-agent-ctl status | while read zeile; do
+      [[ ${zeile} =~ UUID:[\ \t]+(.*) ]] && uuid=${BASH_REMATCH[1]} || \
+      [[ ${uuid} != "" &&  ${zeile} =~ Site\ \'monitoring\'\ agent ]] && cmk-agent-ctl delete ${uuid} && uuid=""
+    done
+    rm -f /tmp/cmk-zertifikat.json
+
+- name: "Generiere Zertifikate."
+  become: true
+  ansible.builtin.shell: |
+    echo y | cmk-agent-ctl proxy-register \
+       --server {{cmk_server_fqdn}} \
+       --site {{cmk_site}} \
+       --hostname {{cmk_hostname}} \
+       --user {{cmk_automation_user_name}} \
+       --password '{{cmk_automation_user_password}}'
+  register: zertifikat
+  delegate_to: "{{cmk_apirequest_host}}"
+
+- name: "Kopiere das generierte Zertifikat von '{{cmk_server_fqdn}}' auf dem jeweiligen Host."
+  ansible.builtin.copy:
+    content: "{{zertifikat.stdout}}"
+    dest: /tmp/cmk-zertifikat.json
+
+- name: "Importiere das empfangene Zertifikat auf dem jeweiligen Host."
+  become: true
+  ansible.builtin.shell: |
+    cmk-agent-ctl import /tmp/cmk-zertifikat.json
+    rm -f /tmp/cmk-zertifikat.json
+
