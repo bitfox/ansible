@@ -25,7 +25,7 @@
   register: zertifikat
   delegate_to: "{{cmk_apirequest_host}}"
 
-- name: "Kopiere das generierte Zertifikat von '{{cmk_server_fqdn}}' auf dem jeweiligen Host."
+- name: "Kopiere das generierte Zertifikat von '{{cmk_server_fqdn}}' auf den jeweiligen Host."
   ansible.builtin.copy:
     content: "{{zertifikat.stdout}}"
     dest: /tmp/cmk-zertifikat.json
